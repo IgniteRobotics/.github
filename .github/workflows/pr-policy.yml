@@ -1,0 +1,36 @@
+# Keeps every public, non-archived IgniteRobotics repo at "collaborators only"
+# for opening pull requests. GitHub has no org-wide default for this setting,
+# so this sweep sets it on any repo that doesn't have it, new ones included.
+name: PR policy sweep
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set collaborators-only PR creation on public repos
+        env:
+          # Fine-grained token: owner IgniteRobotics, all repositories,
+          # Administration read/write (Metadata read is added automatically).
+          GH_TOKEN: ${{ secrets.ORG_REPO_ADMIN_TOKEN }}
+          ORG: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          changed=0
+          for repo in $(gh api --paginate "orgs/$ORG/repos?type=public&per_page=100" \
+              --jq '.[] | select(.archived | not)
+                        | select(.pull_request_creation_policy != "collaborators_only")
+                        | .name'); do
+            gh api -X PATCH "repos/$ORG/$repo" \
+              -f pull_request_creation_policy=collaborators_only --silent
+            echo "set collaborators_only: $repo" | tee -a "$GITHUB_STEP_SUMMARY"
+            changed=$((changed + 1))
+          done
+          echo "repos changed: $changed" | tee -a "$GITHUB_STEP_SUMMARY"
